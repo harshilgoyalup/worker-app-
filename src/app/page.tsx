@@ -17,7 +17,7 @@ import {
 import { Job, JobStatus, PaymentRecord, ReviewRecord, PlatformSettings, NotificationRecord, WorkerProfile } from '../lib/types';
 
 export default function WorkerPage() {
-  const { user, userProfile, workerProfile, logout, loginAsDemoWorker, signIn, signUp, refreshWorkerProfile } = useAuth();
+  const { user, userProfile, workerProfile, loading: authLoading, logout, loginAsDemoWorker, signIn, signUp, refreshWorkerProfile } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'requests' | 'active' | 'earnings' | 'reviews' | 'profile'>('requests');
   
@@ -58,12 +58,12 @@ export default function WorkerPage() {
   const [authError, setAuthError] = useState('');
   const [authSuccessMsg, setAuthSuccessMsg] = useState('');
 
-  // Auto-login as demo worker if not logged in
+  // Auto-login as demo worker if unauthenticated after auth loading settles
   useEffect(() => {
-    if (!user) {
+    if (!authLoading && !user) {
       loginAsDemoWorker('worker_john_doe', 'John Doe');
     }
-  }, [user]);
+  }, [authLoading, user]);
 
   // Sync edit profile form
   useEffect(() => {
@@ -77,7 +77,9 @@ export default function WorkerPage() {
 
   // Listen to Jobs assigned to current Worker
   useEffect(() => {
-    const currentUid = user?.uid || 'worker_john_doe';
+    if (authLoading) return;
+
+    const currentUid = user?.uid || workerProfile?.uid || 'worker_john_doe';
 
     const q = query(
       collection(db, 'jobs'),
@@ -98,11 +100,13 @@ export default function WorkerPage() {
     });
 
     return () => unsub();
-  }, [user]);
+  }, [authLoading, user, workerProfile]);
 
   // Listen to Payments and Reviews for current Worker
   useEffect(() => {
-    const currentUid = user?.uid || 'worker_john_doe';
+    if (authLoading) return;
+
+    const currentUid = user?.uid || workerProfile?.uid || 'worker_john_doe';
 
     // Payments
     const payQ = query(collection(db, 'payments'), where('workerId', '==', currentUid));
@@ -110,7 +114,7 @@ export default function WorkerPage() {
       const plist: PaymentRecord[] = [];
       snap.forEach((d) => plist.push({ paymentId: d.id, ...d.data() } as PaymentRecord));
       setMyPayments(plist);
-    });
+    }, (err) => console.warn('Worker payments listener notice:', err));
 
     // Reviews
     const revQ = query(collection(db, 'reviews'), where('workerId', '==', currentUid));
@@ -118,12 +122,12 @@ export default function WorkerPage() {
       const rlist: ReviewRecord[] = [];
       snap.forEach((d) => rlist.push({ reviewId: d.id, ...d.data() } as ReviewRecord));
       setMyReviews(rlist);
-    });
+    }, (err) => console.warn('Worker reviews listener notice:', err));
 
     // Settings
     getDoc(doc(db, 'settings', 'platform')).then((d) => {
       if (d.exists()) setPlatformSettings(d.data() as PlatformSettings);
-    });
+    }).catch((e) => console.warn('Worker settings fetch notice:', e));
 
     // Notifications
     const notifQ = query(collection(db, 'notifications'), where('recipientId', '==', currentUid));
@@ -132,14 +136,14 @@ export default function WorkerPage() {
       snap.forEach((d) => nlist.push({ notificationId: d.id, ...d.data() } as NotificationRecord));
       nlist.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setNotifications(nlist);
-    });
+    }, (err) => console.warn('Worker notifications listener notice:', err));
 
     return () => {
       payUnsub();
       revUnsub();
       notifUnsub();
     };
-  }, [user]);
+  }, [authLoading, user, workerProfile]);
 
   // Job Status Transition Function
   const updateJobStatus = async (jobId: string, nextStatus: JobStatus, customerId?: string) => {

@@ -82,8 +82,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Error fetching auth state profile:', e);
         }
       } else {
-        setUserProfile(null);
-        setWorkerProfile(null);
+        // When no active Firebase Auth session exists, initialize default demo worker session
+        const demoUid = 'worker_john_doe';
+        const demoName = 'John Doe';
+        const demoEmail = `${demoUid}@dihadi.co`;
+
+        const demoProfile: UserProfile = {
+          uid: demoUid,
+          name: demoName,
+          email: demoEmail,
+          role: 'worker',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'active'
+        };
+
+        setUser({
+          uid: demoUid,
+          email: demoEmail,
+          displayName: demoName,
+          emailVerified: true,
+          isAnonymous: false,
+          metadata: {},
+          providerData: [],
+          refreshToken: '',
+          tenantId: null,
+          delete: async () => {},
+          getIdToken: async () => 'demo-token',
+          getIdTokenResult: async () => ({} as any),
+          reload: async () => {},
+          toJSON: () => ({})
+        } as unknown as User);
+
+        setUserProfile(demoProfile);
+        await fetchWorkerData(demoUid);
       }
       setLoading(false);
     });
