@@ -20,7 +20,17 @@ interface AuthContextType {
   workerProfile: WorkerProfile | null;
   loading: boolean;
   signIn: (email: string, pass: string) => Promise<void>;
-  signUp: (email: string, pass: string, name: string, phone?: string) => Promise<void>;
+  signUp: (
+    email: string, 
+    pass: string, 
+    name: string, 
+    phone?: string, 
+    aadhaarNumber?: string,
+    skills?: string[],
+    experience?: number,
+    location?: string,
+    pricing?: number
+  ) => Promise<void>;
   logout: () => Promise<void>;
   loginAsDemoWorker: (workerUid?: string, name?: string) => Promise<void>;
   refreshWorkerProfile: () => Promise<void>;
@@ -91,7 +101,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signInWithEmailAndPassword(auth, email, pass);
   };
 
-  const signUp = async (email: string, pass: string, name: string, phone?: string) => {
+  const signUp = async (
+    email: string, 
+    pass: string, 
+    name: string, 
+    phone?: string, 
+    aadhaarNumber?: string,
+    skills?: string[],
+    experience?: number,
+    location?: string,
+    pricing?: number
+  ) => {
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     await updateProfile(cred.user, { displayName: name });
     
@@ -113,16 +133,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name,
       email,
       phone: phone || '',
+      aadhaarNumber: aadhaarNumber || '',
       verificationStatus: 'PENDING',
-      skills: ['General Labor'],
-      experience: 1,
-      location: 'Delhi NCR',
-      languages: ['Hindi'],
+      skills: skills && skills.length > 0 ? skills : ['General Labor'],
+      experience: experience || 1,
+      location: location || 'Delhi NCR',
+      languages: ['Hindi', 'English'],
       availability: true,
-      pricing: 500,
+      pricing: pricing || 600,
       rating: 5.0,
       completedJobs: 0,
-      documents: [],
+      documents: aadhaarNumber ? [{ name: 'Aadhaar ID', url: `aadhaar:${aadhaarNumber}` }] : [],
       createdAt: new Date().toISOString()
     };
 

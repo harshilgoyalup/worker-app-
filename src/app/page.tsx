@@ -45,12 +45,18 @@ export default function WorkerPage() {
 
   // Auth Modal State
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
   const [authEmail, setAuthEmail] = useState('');
   const [authPass, setAuthPass] = useState('');
   const [authName, setAuthName] = useState('');
   const [authPhone, setAuthPhone] = useState('');
+  const [authAadhaar, setAuthAadhaar] = useState('');
+  const [authSkill, setAuthSkill] = useState('Plumber, Electrician');
+  const [authPricing, setAuthPricing] = useState<number | ''>(650);
+  const [authLocation, setAuthLocation] = useState('Delhi NCR');
+  const [authExperience, setAuthExperience] = useState<number>(3);
   const [authError, setAuthError] = useState('');
+  const [authSuccessMsg, setAuthSuccessMsg] = useState('');
 
   // Auto-login as demo worker if not logged in
   useEffect(() => {
@@ -195,13 +201,30 @@ export default function WorkerPage() {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setAuthSuccessMsg('');
     try {
       if (authMode === 'signin') {
         await signIn(authEmail, authPass);
+        setShowAuthModal(false);
       } else {
-        await signUp(authEmail, authPass, authName || 'Worker User', authPhone);
+        const skillsArr = authSkill ? authSkill.split(',').map((s) => s.trim()).filter(Boolean) : ['General Labor'];
+        await signUp(
+          authEmail,
+          authPass,
+          authName || 'Worker User',
+          authPhone,
+          authAadhaar,
+          skillsArr,
+          Number(authExperience) || 1,
+          authLocation || 'Delhi NCR',
+          Number(authPricing) || 600
+        );
+        setAuthSuccessMsg('Worker registered successfully! Status is PENDING ADMIN APPROVAL.');
+        setTimeout(() => {
+          setShowAuthModal(false);
+          setAuthSuccessMsg('');
+        }, 1500);
       }
-      setShowAuthModal(false);
     } catch (err: any) {
       setAuthError(err.message || 'Auth failed');
     }
@@ -329,12 +352,26 @@ export default function WorkerPage() {
               </button>
             </div>
           ) : (
-            <button 
-              onClick={() => loginAsDemoWorker('worker_john_doe', 'John Doe')}
-              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-3.5 py-1.5 rounded-lg"
-            >
-              Demo Worker Login
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg shadow-sm"
+              >
+                + Register Worker Account
+              </button>
+              <button 
+                onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg"
+              >
+                Sign In
+              </button>
+              <button 
+                onClick={() => loginAsDemoWorker('worker_john_doe', 'John Doe')}
+                className="text-slate-400 hover:text-white text-xs px-2 py-1.5 underline"
+              >
+                Demo Login
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -699,6 +736,184 @@ export default function WorkerPage() {
           <span>Status: Verified Firebase Engine</span>
         </div>
       </footer>
+
+      {/* Auth / Registration Modal */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-md w-full shadow-2xl relative space-y-4 my-8">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-lg">
+                {authMode === 'signup' ? 'Worker Account Registration' : 'Worker Sign In'}
+              </h3>
+              <button 
+                onClick={() => setShowAuthModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-xl font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {authError && (
+              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 font-semibold">
+                {authError}
+              </div>
+            )}
+
+            {authSuccessMsg && (
+              <div className="p-3 bg-emerald-50 text-emerald-800 text-xs rounded-xl border border-emerald-200 font-semibold">
+                ✓ {authSuccessMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} className="space-y-3 text-xs">
+              {authMode === 'signup' && (
+                <>
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Full Name *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. Ramesh Kumar"
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Phone Number *</label>
+                      <input 
+                        type="tel" 
+                        required 
+                        placeholder="+91 9876543210"
+                        value={authPhone}
+                        onChange={(e) => setAuthPhone(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Aadhaar Card No. *</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="12-digit Aadhaar ID"
+                        maxLength={14}
+                        value={authAadhaar}
+                        onChange={(e) => setAuthAadhaar(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Trade Skills (Comma-separated) *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. Electrician, Plumber, Mason"
+                      value={authSkill}
+                      onChange={(e) => setAuthSkill(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Daily Wage Rate (₹) *</label>
+                      <input 
+                        type="number" 
+                        required 
+                        placeholder="650"
+                        value={authPricing}
+                        onChange={(e) => setAuthPricing(e.target.value ? Number(e.target.value) : '')}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Experience (Years) *</label>
+                      <input 
+                        type="number" 
+                        required 
+                        value={authExperience}
+                        onChange={(e) => setAuthExperience(Number(e.target.value))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">City / Base Location *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. Delhi NCR, Mumbai, Bengaluru"
+                      value={authLocation}
+                      onChange={(e) => setAuthLocation(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Email Address *</label>
+                <input 
+                  type="email" 
+                  required 
+                  placeholder="worker@example.com"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Password *</label>
+                <input 
+                  type="password" 
+                  required 
+                  placeholder="••••••••"
+                  value={authPass}
+                  onChange={(e) => setAuthPass(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-xl shadow-md transition-colors text-xs uppercase tracking-wider mt-2"
+              >
+                {authMode === 'signup' ? 'Submit Worker Registration' : 'Sign In'}
+              </button>
+            </form>
+
+            <div className="pt-2 text-center text-xs text-slate-500 border-t border-slate-100">
+              {authMode === 'signup' ? (
+                <p>
+                  Already have an account?{' '}
+                  <button 
+                    onClick={() => setAuthMode('signin')} 
+                    className="text-amber-600 font-bold hover:underline"
+                  >
+                    Sign In
+                  </button>
+                </p>
+              ) : (
+                <p>
+                  New worker?{' '}
+                  <button 
+                    onClick={() => setAuthMode('signup')} 
+                    className="text-amber-600 font-bold hover:underline"
+                  >
+                    Register Account
+                  </button>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

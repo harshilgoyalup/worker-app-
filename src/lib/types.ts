@@ -29,6 +29,7 @@ export interface WorkerProfile {
   name: string;
   email: string;
   phone?: string;
+  aadhaarNumber?: string;
   photoURL?: string;
   verificationStatus: VerificationStatus;
   skills: string[];
