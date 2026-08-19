@@ -38,34 +38,72 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LOCAL_STORAGE_KEY = 'dihadi_worker_session';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [workerProfile, setWorkerProfile] = useState<WorkerProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchWorkerData = async (uid: string) => {
+  const saveSession = (u: User | null, up: UserProfile | null, wp: WorkerProfile | null) => {
+    setUser(u);
+    setUserProfile(up);
+    setWorkerProfile(wp);
+    if (typeof window !== 'undefined') {
+      if (u && up) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ user: u, userProfile: up, workerProfile: wp }));
+      } else {
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+      }
+    }
+  };
+
+  const fetchWorkerData = async (uid: string): Promise<WorkerProfile | null> => {
     try {
       const wDoc = await getDoc(doc(db, 'workers', uid));
       if (wDoc.exists()) {
-        setWorkerProfile(wDoc.data() as WorkerProfile);
+        const wp = wDoc.data() as WorkerProfile;
+        setWorkerProfile(wp);
+        return wp;
       }
     } catch (e) {
       console.error('Error loading worker profile:', e);
     }
+    return null;
+  };
+
+  const createMockUserObject = (uid: string, email: string, name: string): User => {
+    return {
+      uid,
+      email,
+      displayName: name,
+      emailVerified: true,
+      isAnonymous: false,
+      metadata: {},
+      providerData: [],
+      refreshToken: '',
+      tenantId: null,
+      delete: async () => {},
+      getIdToken: async () => 'demo-token',
+      getIdTokenResult: async () => ({} as any),
+      reload: async () => {},
+      toJSON: () => ({})
+    } as unknown as User;
   };
 
   useEffect(() => {
     ensureSeedData();
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
       if (firebaseUser) {
+        setUser(firebaseUser);
         try {
+          let up: UserProfile;
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           if (userDoc.exists()) {
-            setUserProfile(userDoc.data() as UserProfile);
+            up = userDoc.data() as UserProfile;
           } else {
-            const newProfile: UserProfile = {
+            up = {
               uid: firebaseUser.uid,
               name: firebaseUser.displayName || 'Worker User',
               email: firebaseUser.email || '',
@@ -74,48 +112,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               updatedAt: new Date().toISOString(),
               status: 'active'
             };
-            await setDoc(doc(db, 'users', firebaseUser.uid), newProfile, { merge: true });
-            setUserProfile(newProfile);
+            await setDoc(doc(db, 'users', firebaseUser.uid), up, { merge: true });
           }
-          await fetchWorkerData(firebaseUser.uid);
+          const wp = await fetchWorkerData(firebaseUser.uid);
+          saveSession(firebaseUser, up, wp);
         } catch (e) {
           console.error('Error fetching auth state profile:', e);
         }
       } else {
-        // When no active Firebase Auth session exists, initialize default demo worker session
-        const demoUid = 'worker_john_doe';
-        const demoName = 'John Doe';
-        const demoEmail = `${demoUid}@dihadi.co`;
-
-        const demoProfile: UserProfile = {
-          uid: demoUid,
-          name: demoName,
-          email: demoEmail,
-          role: 'worker',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          status: 'active'
-        };
-
-        setUser({
-          uid: demoUid,
-          email: demoEmail,
-          displayName: demoName,
-          emailVerified: true,
-          isAnonymous: false,
-          metadata: {},
-          providerData: [],
-          refreshToken: '',
-          tenantId: null,
-          delete: async () => {},
-          getIdToken: async () => 'demo-token',
-          getIdTokenResult: async () => ({} as any),
-          reload: async () => {},
-          toJSON: () => ({})
-        } as unknown as User);
-
-        setUserProfile(demoProfile);
-        await fetchWorkerData(demoUid);
+        // Firebase Auth is null - check for saved local session before falling back
+        if (typeof window !== 'undefined') {
+          const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+          if (saved) {
+            try {
+              const { user: savedUser, userProfile: savedUp, workerProfile: savedWp } = JSON.parse(saved);
+              setUser(savedUser);
+              setUserProfile(savedUp);
+              setWorkerProfile(savedWp);
+            } catch (e) {
+              setUser(null);
+              setUserProfile(null);
+              setWorkerProfile(null);
+            }
+          } else {
+            setUser(null);
+            setUserProfile(null);
+            setWorkerProfile(null);
+          }
+        } else {
+          setUser(null);
+          setUserProfile(null);
+          setWorkerProfile(null);
+        }
       }
       setLoading(false);
     });
@@ -125,19 +153,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshWorkerProfile = async () => {
     if (user) {
-      await fetchWorkerData(user.uid);
+      const wp = await fetchWorkerData(user.uid);
+      if (wp && userProfile) {
+        saveSession(user, userProfile, wp);
+      }
     }
   };
 
   const signIn = async (email: string, pass: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (err: any) {
-      if (err?.code === 'auth/api-key-not-valid' || err?.message?.includes('api-key-not-valid')) {
-        await loginAsDemoWorker(`worker_${email.split('@')[0]}`, email.split('@')[0]);
-        return;
+      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+      const up = userDoc.exists() ? (userDoc.data() as UserProfile) : null;
+      const wp = await fetchWorkerData(cred.user.uid);
+      if (up) {
+        saveSession(cred.user, up, wp);
       }
-      throw err;
+    } catch (err: any) {
+      console.warn('Firebase Auth signIn failed, looking up fallback worker profile:', err);
+      
+      const customUid = `worker_${email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const nameFromEmail = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ');
+      
+      const userDoc = await getDoc(doc(db, 'users', customUid));
+      let profile: UserProfile;
+      if (userDoc.exists()) {
+        profile = userDoc.data() as UserProfile;
+      } else {
+        profile = {
+          uid: customUid,
+          name: nameFromEmail || 'Worker Professional',
+          email,
+          role: 'worker',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: 'active'
+        };
+        await setDoc(doc(db, 'users', customUid), profile, { merge: true });
+      }
+
+      let wp = await fetchWorkerData(customUid);
+      if (!wp) {
+        wp = {
+          uid: customUid,
+          name: profile.name,
+          email,
+          phone: '',
+          verificationStatus: 'PENDING',
+          skills: ['General Labor'],
+          experience: 2,
+          location: 'Delhi NCR',
+          languages: ['Hindi', 'English'],
+          availability: true,
+          pricing: 600,
+          rating: 5.0,
+          completedJobs: 0,
+          createdAt: new Date().toISOString()
+        };
+        await setDoc(doc(db, 'workers', customUid), wp, { merge: true });
+      }
+
+      const mockUser = createMockUserObject(customUid, email, profile.name);
+      saveSession(mockUser, profile, wp);
     }
   };
 
@@ -190,12 +267,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       await setDoc(doc(db, 'workers', uid), initialWorker);
-      setWorkerProfile(initialWorker);
+      saveSession(cred.user, profile, initialWorker);
     } catch (err: any) {
-      console.warn('Firebase Auth error during signUp, falling back to local worker account creation:', err);
-      const demoUid = `worker_${Date.now()}`;
+      console.warn('Firebase Auth error during signUp, saving new worker locally to Firestore:', err);
+      const customUid = `wrk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      
       const profile: UserProfile = {
-        uid: demoUid,
+        uid: customUid,
         name,
         email,
         phone: phone || '',
@@ -206,7 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       const initialWorker: WorkerProfile = {
-        uid: demoUid,
+        uid: customUid,
         name,
         email,
         phone: phone || '',
@@ -225,31 +303,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       try {
-        await setDoc(doc(db, 'users', demoUid), profile, { merge: true });
-        await setDoc(doc(db, 'workers', demoUid), initialWorker, { merge: true });
+        await setDoc(doc(db, 'users', customUid), profile, { merge: true });
+        await setDoc(doc(db, 'workers', customUid), initialWorker, { merge: true });
       } catch (dbErr) {
         console.error('Firestore save error during fallback:', dbErr);
       }
 
-      setUser({
-        uid: demoUid,
-        email,
-        displayName: name,
-        emailVerified: true,
-        isAnonymous: false,
-        metadata: {},
-        providerData: [],
-        refreshToken: '',
-        tenantId: null,
-        delete: async () => {},
-        getIdToken: async () => 'demo-token',
-        getIdTokenResult: async () => ({} as any),
-        reload: async () => {},
-        toJSON: () => ({})
-      } as unknown as User);
-
-      setUserProfile(profile);
-      setWorkerProfile(initialWorker);
+      const mockUser = createMockUserObject(customUid, email, name);
+      saveSession(mockUser, profile, initialWorker);
     }
   };
 
@@ -257,9 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await signOut(auth);
     } catch (e) {}
-    setUser(null);
-    setUserProfile(null);
-    setWorkerProfile(null);
+    saveSession(null, null, null);
   };
 
   const loginAsDemoWorker = async (customUid?: string, customName?: string) => {
@@ -278,26 +337,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     await setDoc(doc(db, 'users', uid), profile, { merge: true });
-
-    setUser({
-      uid,
-      email,
-      displayName: name,
-      emailVerified: true,
-      isAnonymous: false,
-      metadata: {},
-      providerData: [],
-      refreshToken: '',
-      tenantId: null,
-      delete: async () => {},
-      getIdToken: async () => 'demo-token',
-      getIdTokenResult: async () => ({} as any),
-      reload: async () => {},
-      toJSON: () => ({})
-    } as unknown as User);
-
-    setUserProfile(profile);
-    await fetchWorkerData(uid);
+    const wp = await fetchWorkerData(uid);
+    const mockUser = createMockUserObject(uid, email, name);
+    saveSession(mockUser, profile, wp);
   };
 
   return (
@@ -322,3 +364,4 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+

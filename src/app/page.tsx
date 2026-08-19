@@ -46,24 +46,17 @@ export default function WorkerPage() {
   // Auth Modal State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
-  const [authEmail, setAuthEmail] = useState('ramesh@dihadi.co');
-  const [authPass, setAuthPass] = useState('pass123456');
-  const [authName, setAuthName] = useState('Ramesh Kumar');
-  const [authPhone, setAuthPhone] = useState('9876543210');
-  const [authAadhaar, setAuthAadhaar] = useState('123456789012');
-  const [authSkill, setAuthSkill] = useState('Plumber, Electrician');
-  const [authPricing, setAuthPricing] = useState<number | ''>(650);
-  const [authLocation, setAuthLocation] = useState('Delhi NCR');
-  const [authExperience, setAuthExperience] = useState<number>(3);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPass, setAuthPass] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authAadhaar, setAuthAadhaar] = useState('');
+  const [authSkill, setAuthSkill] = useState('');
+  const [authPricing, setAuthPricing] = useState<number | ''>('');
+  const [authLocation, setAuthLocation] = useState('');
+  const [authExperience, setAuthExperience] = useState<number | ''>('');
   const [authError, setAuthError] = useState('');
   const [authSuccessMsg, setAuthSuccessMsg] = useState('');
-
-  // Auto-login as demo worker if unauthenticated after auth loading settles
-  useEffect(() => {
-    if (!authLoading && !user) {
-      loginAsDemoWorker('worker_john_doe', 'John Doe');
-    }
-  }, [authLoading, user]);
 
   // Sync edit profile form
   useEffect(() => {
@@ -208,30 +201,36 @@ export default function WorkerPage() {
     setAuthSuccessMsg('');
     try {
       if (authMode === 'signin') {
-        const emailToUse = authEmail || 'ramesh@dihadi.co';
-        const passToUse = authPass || 'pass123456';
-        await signIn(emailToUse, passToUse);
+        if (!authEmail.trim()) {
+          setAuthError('Please enter your email address');
+          return;
+        }
+        await signIn(authEmail.trim(), authPass || 'pass123456');
         alert('Signed in successfully!');
         setShowAuthModal(false);
       } else {
-        const phoneDigits = authPhone ? authPhone.replace(/\D/g, '') : '9876543210';
+        if (!authName.trim()) {
+          setAuthError('Please enter your full name');
+          return;
+        }
+        const phoneDigits = authPhone ? authPhone.replace(/\D/g, '') : '';
         const finalEmail = authEmail.trim() || `${phoneDigits || Date.now()}@dihadi.co`;
         const finalPass = authPass || 'pass123456';
 
-        const skillsArr = authSkill ? authSkill.split(',').map((s) => s.trim()).filter(Boolean) : ['Plumber', 'Electrician'];
+        const skillsArr = authSkill ? authSkill.split(',').map((s) => s.trim()).filter(Boolean) : ['General Labor'];
         await signUp(
           finalEmail,
           finalPass,
-          authName || 'Ramesh Kumar',
-          authPhone || '9876543210',
-          authAadhaar || '123456789012',
+          authName.trim(),
+          authPhone || '',
+          authAadhaar || '',
           skillsArr,
-          Number(authExperience) || 3,
+          Number(authExperience) || 1,
           authLocation || 'Delhi NCR',
-          Number(authPricing) || 650
+          Number(authPricing) || 600
         );
         setAuthSuccessMsg('Worker registered successfully! Status is PENDING ADMIN APPROVAL.');
-        alert('Worker account submitted successfully! Status is PENDING ADMIN APPROVAL.');
+        alert(`Worker account for "${authName.trim()}" created successfully! Status: PENDING ADMIN APPROVAL.`);
         setShowAuthModal(false);
       }
     } catch (err: any) {
@@ -388,35 +387,67 @@ export default function WorkerPage() {
       </header>
 
       {/* Real-time Verification Status Banner */}
-      <div className="w-full">
-        {workerProfile?.verificationStatus === 'VERIFIED' ? (
-          <div className="bg-emerald-600 text-white px-6 py-2 text-xs font-semibold flex items-center justify-between shadow-inner">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-base">verified</span>
-              <span>Your profile is <strong>VERIFIED by Dihadi Admin</strong>! Customers see your verified trust badge.</span>
+      {user && (
+        <div className="w-full">
+          {workerProfile?.verificationStatus === 'VERIFIED' ? (
+            <div className="bg-emerald-600 text-white px-6 py-2 text-xs font-semibold flex items-center justify-between shadow-inner">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base">verified</span>
+                <span>Your profile is <strong>VERIFIED by Dihadi Admin</strong>! Customers see your verified trust badge.</span>
+              </div>
+              <span className="bg-emerald-800 text-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Active</span>
             </div>
-            <span className="bg-emerald-800 text-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Active</span>
-          </div>
-        ) : (
-          <div className="bg-amber-500 text-slate-950 px-6 py-2.5 text-xs font-semibold flex items-center justify-between shadow-inner">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-base">pending_actions</span>
-              <span>Verification Status: <strong>PENDING ADMIN APPROVAL</strong>. Switch to Admin App to click VERIFY.</span>
+          ) : (
+            <div className="bg-amber-500 text-slate-950 px-6 py-2.5 text-xs font-semibold flex items-center justify-between shadow-inner">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base">pending_actions</span>
+                <span>Verification Status: <strong>PENDING ADMIN APPROVAL</strong>. Switch to Admin App to click VERIFY.</span>
+              </div>
+              <button 
+                onClick={() => refreshWorkerProfile()}
+                className="bg-slate-950 text-white px-3 py-1 rounded text-[10px] font-bold"
+              >
+                Refresh Status
+              </button>
             </div>
-            <button 
-              onClick={() => loginAsDemoWorker('worker_john_doe', 'John Doe')}
-              className="bg-slate-950 text-white px-3 py-1 rounded text-[10px] font-bold"
-            >
-              Refresh Status
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Main Body Canvas */}
       <main className="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">
-
-        {/* TAB 1: INCOMING JOB REQUESTS */}
+        {!user ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-2xl mx-auto my-12 text-center space-y-5 shadow-md">
+            <div className="w-16 h-16 bg-amber-500/10 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+              <span className="material-symbols-outlined text-3xl">engineering</span>
+            </div>
+            <h2 className="text-2xl font-black text-slate-900">Join Dihadi.Co Workforce</h2>
+            <p className="text-slate-600 text-xs sm:text-sm max-w-md mx-auto">
+              Create your worker profile with your trade skills, location, and daily rate to start receiving job requests from local customers.
+            </p>
+            <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+              <button 
+                onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-6 py-3 rounded-xl shadow-md transition-colors"
+              >
+                + Create New Worker Account
+              </button>
+              <button 
+                onClick={() => { setAuthMode('signin'); setShowAuthModal(true); }}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-6 py-3 rounded-xl transition-colors"
+              >
+                Sign In Existing Account
+              </button>
+              <button 
+                onClick={() => loginAsDemoWorker('worker_john_doe', 'John Doe')}
+                className="border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs px-4 py-3 rounded-xl transition-colors"
+              >
+                Try Sample Worker Login
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
         {activeTab === 'requests' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center pb-3 border-b border-slate-200">
@@ -737,7 +768,8 @@ export default function WorkerPage() {
             </form>
           </div>
         )}
-
+        </>
+        )}
       </main>
 
       {/* Footer */}
