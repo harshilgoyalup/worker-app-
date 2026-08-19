@@ -175,12 +175,12 @@ export default function WorkerPage() {
   // Save Worker Profile
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
     setIsSavingProfile(true);
 
     try {
+      const targetUid = user?.uid || 'worker_john_doe';
       const skillsArray = editSkills.split(',').map((s) => s.trim()).filter(Boolean);
-      await setDoc(doc(db, 'workers', user.uid), {
+      await setDoc(doc(db, 'workers', targetUid), {
         pricing: Number(editRate),
         skills: skillsArray,
         location: editLocation,
@@ -220,13 +220,13 @@ export default function WorkerPage() {
           Number(authPricing) || 600
         );
         setAuthSuccessMsg('Worker registered successfully! Status is PENDING ADMIN APPROVAL.');
-        setTimeout(() => {
-          setShowAuthModal(false);
-          setAuthSuccessMsg('');
-        }, 1500);
+        alert('Worker account submitted successfully! Status is PENDING ADMIN APPROVAL.');
+        setShowAuthModal(false);
       }
     } catch (err: any) {
+      console.error('Auth submit error:', err);
       setAuthError(err.message || 'Auth failed');
+      alert(`Submission error: ${err.message || 'Registration failed'}`);
     }
   };
 

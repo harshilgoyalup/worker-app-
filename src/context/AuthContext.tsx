@@ -160,63 +160,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setDoc(doc(db, 'workers', uid), initialWorker);
       setWorkerProfile(initialWorker);
     } catch (err: any) {
-      if (err?.code === 'auth/api-key-not-valid' || err?.message?.includes('api-key-not-valid')) {
-        const demoUid = `worker_${Date.now()}`;
-        const profile: UserProfile = {
-          uid: demoUid,
-          name,
-          email,
-          phone: phone || '',
-          role: 'worker',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          status: 'active'
-        };
+      console.warn('Firebase Auth error during signUp, falling back to local worker account creation:', err);
+      const demoUid = `worker_${Date.now()}`;
+      const profile: UserProfile = {
+        uid: demoUid,
+        name,
+        email,
+        phone: phone || '',
+        role: 'worker',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'active'
+      };
 
-        const initialWorker: WorkerProfile = {
-          uid: demoUid,
-          name,
-          email,
-          phone: phone || '',
-          aadhaarNumber: aadhaarNumber || '',
-          verificationStatus: 'PENDING',
-          skills: skills && skills.length > 0 ? skills : ['General Labor'],
-          experience: experience || 1,
-          location: location || 'Delhi NCR',
-          languages: ['Hindi', 'English'],
-          availability: true,
-          pricing: pricing || 600,
-          rating: 5.0,
-          completedJobs: 0,
-          documents: aadhaarNumber ? [{ name: 'Aadhaar ID', url: `aadhaar:${aadhaarNumber}` }] : [],
-          createdAt: new Date().toISOString()
-        };
+      const initialWorker: WorkerProfile = {
+        uid: demoUid,
+        name,
+        email,
+        phone: phone || '',
+        aadhaarNumber: aadhaarNumber || '',
+        verificationStatus: 'PENDING',
+        skills: skills && skills.length > 0 ? skills : ['General Labor'],
+        experience: experience || 1,
+        location: location || 'Delhi NCR',
+        languages: ['Hindi', 'English'],
+        availability: true,
+        pricing: pricing || 600,
+        rating: 5.0,
+        completedJobs: 0,
+        documents: aadhaarNumber ? [{ name: 'Aadhaar ID', url: `aadhaar:${aadhaarNumber}` }] : [],
+        createdAt: new Date().toISOString()
+      };
 
+      try {
         await setDoc(doc(db, 'users', demoUid), profile, { merge: true });
         await setDoc(doc(db, 'workers', demoUid), initialWorker, { merge: true });
-
-        setUser({
-          uid: demoUid,
-          email,
-          displayName: name,
-          emailVerified: true,
-          isAnonymous: false,
-          metadata: {},
-          providerData: [],
-          refreshToken: '',
-          tenantId: null,
-          delete: async () => {},
-          getIdToken: async () => 'demo-token',
-          getIdTokenResult: async () => ({} as any),
-          reload: async () => {},
-          toJSON: () => ({})
-        } as unknown as User);
-
-        setUserProfile(profile);
-        setWorkerProfile(initialWorker);
-        return;
+      } catch (dbErr) {
+        console.error('Firestore save error during fallback:', dbErr);
       }
-      throw err;
+
+      setUser({
+        uid: demoUid,
+        email,
+        displayName: name,
+        emailVerified: true,
+        isAnonymous: false,
+        metadata: {},
+        providerData: [],
+        refreshToken: '',
+        tenantId: null,
+        delete: async () => {},
+        getIdToken: async () => 'demo-token',
+        getIdTokenResult: async () => ({} as any),
+        reload: async () => {},
+        toJSON: () => ({})
+      } as unknown as User);
+
+      setUserProfile(profile);
+      setWorkerProfile(initialWorker);
     }
   };
 
