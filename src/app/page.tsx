@@ -46,11 +46,11 @@ export default function WorkerPage() {
   // Auth Modal State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPass, setAuthPass] = useState('');
-  const [authName, setAuthName] = useState('');
-  const [authPhone, setAuthPhone] = useState('');
-  const [authAadhaar, setAuthAadhaar] = useState('');
+  const [authEmail, setAuthEmail] = useState('ramesh@dihadi.co');
+  const [authPass, setAuthPass] = useState('pass123456');
+  const [authName, setAuthName] = useState('Ramesh Kumar');
+  const [authPhone, setAuthPhone] = useState('9876543210');
+  const [authAadhaar, setAuthAadhaar] = useState('123456789012');
   const [authSkill, setAuthSkill] = useState('Plumber, Electrician');
   const [authPricing, setAuthPricing] = useState<number | ''>(650);
   const [authLocation, setAuthLocation] = useState('Delhi NCR');
@@ -198,26 +198,33 @@ export default function WorkerPage() {
   };
 
   // Auth Submit
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAuthSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setAuthError('');
     setAuthSuccessMsg('');
     try {
       if (authMode === 'signin') {
-        await signIn(authEmail, authPass);
+        const emailToUse = authEmail || 'ramesh@dihadi.co';
+        const passToUse = authPass || 'pass123456';
+        await signIn(emailToUse, passToUse);
+        alert('Signed in successfully!');
         setShowAuthModal(false);
       } else {
-        const skillsArr = authSkill ? authSkill.split(',').map((s) => s.trim()).filter(Boolean) : ['General Labor'];
+        const phoneDigits = authPhone ? authPhone.replace(/\D/g, '') : '9876543210';
+        const finalEmail = authEmail.trim() || `${phoneDigits || Date.now()}@dihadi.co`;
+        const finalPass = authPass || 'pass123456';
+
+        const skillsArr = authSkill ? authSkill.split(',').map((s) => s.trim()).filter(Boolean) : ['Plumber', 'Electrician'];
         await signUp(
-          authEmail,
-          authPass,
-          authName || 'Worker User',
-          authPhone,
-          authAadhaar,
+          finalEmail,
+          finalPass,
+          authName || 'Ramesh Kumar',
+          authPhone || '9876543210',
+          authAadhaar || '123456789012',
           skillsArr,
-          Number(authExperience) || 1,
+          Number(authExperience) || 3,
           authLocation || 'Delhi NCR',
-          Number(authPricing) || 600
+          Number(authPricing) || 650
         );
         setAuthSuccessMsg('Worker registered successfully! Status is PENDING ADMIN APPROVAL.');
         alert('Worker account submitted successfully! Status is PENDING ADMIN APPROVAL.');
@@ -881,8 +888,9 @@ export default function WorkerPage() {
               </div>
 
               <button
-                type="submit"
-                className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-xl shadow-md transition-colors text-xs uppercase tracking-wider mt-2"
+                type="button"
+                onClick={() => handleAuthSubmit()}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-xl shadow-md transition-colors text-xs uppercase tracking-wider mt-2 cursor-pointer"
               >
                 {authMode === 'signup' ? 'Submit Worker Registration' : 'Sign In'}
               </button>
