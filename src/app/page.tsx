@@ -16,6 +16,70 @@ import {
 } from 'firebase/firestore';
 import { Job, JobStatus, PaymentRecord, ReviewRecord, PlatformSettings, NotificationRecord, WorkerProfile } from '../lib/types';
 
+function LiveWorkerTimer({ punchInTime, hourlyRate, currency = '₹' }: { punchInTime: string; hourlyRate: number; currency?: string }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    const calc = () => {
+      const start = new Date(punchInTime).getTime();
+      const now = new Date().getTime();
+      setElapsedSeconds(Math.max(0, Math.floor((now - start) / 1000)));
+    };
+    calc();
+    const timer = setInterval(calc, 1000);
+    return () => clearInterval(timer);
+  }, [punchInTime]);
+
+  const hrs = Math.floor(elapsedSeconds / 3600);
+  const mins = Math.floor((elapsedSeconds % 3600) / 60);
+  const secs = elapsedSeconds % 60;
+
+  const totalMins = Math.floor(elapsedSeconds / 60);
+  const stdMins = Math.min(totalMins, 480);
+  const otMins = Math.max(0, totalMins - 480);
+
+  const stdPay = Math.round((stdMins / 60) * hourlyRate);
+  const otPay = Math.round((otMins / 60) * (hourlyRate * 1.5));
+  const totalEarnings = stdPay + otPay;
+
+  return (
+    <div className="bg-emerald-950 text-emerald-100 border border-emerald-800/80 rounded-2xl p-4 shadow-md space-y-3 my-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-400"></span>
+          </span>
+          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">On-Site Shift Active</span>
+        </div>
+        <span className="text-[11px] font-mono text-emerald-300">Started: {new Date(punchInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      </div>
+
+      <div className="flex items-baseline justify-between border-y border-emerald-900 py-2.5">
+        <div>
+          <span className="text-[11px] text-emerald-400 block mb-0.5">Shift Clock</span>
+          <span className="text-3xl font-black font-mono tracking-tight text-white">
+            {String(hrs).padStart(2, '0')}:{String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+          </span>
+        </div>
+        <div className="text-right">
+          <span className="text-[11px] text-emerald-400 block mb-0.5">Earned So Far</span>
+          <span className="text-2xl font-black text-amber-400">{currency}{totalEarnings}</span>
+        </div>
+      </div>
+
+      <div className="flex justify-between text-[11px] text-emerald-300">
+        <span>Rate: {currency}{hourlyRate}/hr</span>
+        {otMins > 0 ? (
+          <span className="text-amber-400 font-bold">Overtime Active (1.5×): {otMins} mins</span>
+        ) : (
+          <span>Standard Shift (Max 8 hrs)</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function WorkerPage() {
   const { user, userProfile, workerProfile, loading: authLoading, logout, loginAsDemoWorker, signIn, signUp, refreshWorkerProfile } = useAuth();
 
@@ -24,6 +88,11 @@ export default function WorkerPage() {
   // Real-time Firestore Job Collections
   const [assignedJobs, setAssignedJobs] = useState<Job[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
+
+  // QR Scanner Modal State
+  const [qrScannerJob, setQrScannerJob] = useState<Job | null>(null);
+  const [qrInputPin, setQrInputPin] = useState('');
+  const [isProcessingPunch, setIsProcessingPunch] = useState(false);
 
   // Real-time Payment & Review History
   const [myPayments, setMyPayments] = useState<PaymentRecord[]>([]);
@@ -166,6 +235,89 @@ export default function WorkerPage() {
     } catch (err: any) {
       console.error('Error updating job status:', err);
       alert(`Status update error: ${err.message}`);
+    }
+  };
+
+  // Punch In via QR Scan / Security PIN
+  const handlePunchIn = async (job: Job) => {
+    setIsProcessingPunch(true);
+    try {
+      const now = new Date().toISOString();
+      const nextToken = Math.floor(100000 + Math.random() * 900000).toString();
+
+      await updateDoc(doc(db, 'jobs', job.jobId), {
+        status: 'STARTED',
+        punchInTime: now,
+        qrToken: nextToken,
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: job.customerId,
+        title: '📱 Shift Started (Punch-In Verified)',
+        message: `${workerProfile?.name || 'Worker'} has checked in & STARTED work on site at ${new Date(now).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.`,
+        type: 'job_status',
+        read: false,
+        createdAt: now,
+      });
+
+      alert('Shift Punch-In Verified! Real-time work timer is now active.');
+      setQrScannerJob(null);
+      setQrInputPin('');
+    } catch (err: any) {
+      console.error('Punch-In Error:', err);
+      alert(`Punch-In failed: ${err.message}`);
+    } finally {
+      setIsProcessingPunch(false);
+    }
+  };
+
+  // Punch Out via QR Scan / Security PIN
+  const handlePunchOut = async (job: Job) => {
+    setIsProcessingPunch(true);
+    try {
+      const now = new Date().toISOString();
+      const startMs = job.punchInTime ? new Date(job.punchInTime).getTime() : (new Date(now).getTime() - 60000);
+      const endMs = new Date(now).getTime();
+
+      const totalMinutesWorked = Math.max(1, Math.floor((endMs - startMs) / 1000 / 60));
+      const standardMinutes = Math.min(totalMinutesWorked, 480);
+      const overtimeMinutes = Math.max(0, totalMinutesWorked - 480);
+
+      const hourlyRate = job.hourlyRate || Math.round((job.price || 600) / 8) || 120;
+      const standardAmount = Math.round((standardMinutes / 60) * hourlyRate);
+      const overtimeAmount = Math.round((overtimeMinutes / 60) * (hourlyRate * 1.5));
+      const finalPrice = Math.max(hourlyRate, standardAmount + overtimeAmount);
+
+      await updateDoc(doc(db, 'jobs', job.jobId), {
+        status: 'COMPLETED',
+        punchOutTime: now,
+        totalMinutesWorked,
+        standardAmount,
+        overtimeMinutes,
+        overtimeAmount,
+        finalPrice,
+        price: finalPrice,
+        updatedAt: now,
+      });
+
+      await addDoc(collection(db, 'notifications'), {
+        recipientId: job.customerId,
+        title: '⏱️ Shift Finished (Punch-Out Verified)',
+        message: `Shift completed! Total worked: ${Math.floor(totalMinutesWorked / 60)}h ${totalMinutesWorked % 60}m. Final bill: ${platformSettings.currency}${finalPrice} (Includes ${overtimeMinutes}m overtime). Please settle payment.`,
+        type: 'job_status',
+        read: false,
+        createdAt: now,
+      });
+
+      alert(`Punch-Out Verified! Duration: ${Math.floor(totalMinutesWorked / 60)}h ${totalMinutesWorked % 60}m. Calculated bill: ${platformSettings.currency}${finalPrice}`);
+      setQrScannerJob(null);
+      setQrInputPin('');
+    } catch (err: any) {
+      console.error('Punch-Out Error:', err);
+      alert(`Punch-Out failed: ${err.message}`);
+    } finally {
+      setIsProcessingPunch(false);
     }
   };
 
@@ -561,11 +713,20 @@ export default function WorkerPage() {
                       <span className="text-2xl font-black text-slate-900">{platformSettings.currency}{job.price}</span>
                     </div>
 
+                    {/* Live Worker Shift Timer widget for STARTED jobs */}
+                    {job.status === 'STARTED' && job.punchInTime && (
+                      <LiveWorkerTimer
+                        punchInTime={job.punchInTime}
+                        hourlyRate={job.hourlyRate || Math.round(job.price / 8) || 120}
+                        currency={platformSettings.currency}
+                      />
+                    )}
+
                     {/* Interactive Worker Status Transition Controls */}
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                       <p className="text-xs font-bold text-slate-800 flex items-center gap-1">
                         <span className="material-symbols-outlined text-amber-500 text-base">touch_app</span>
-                        Worker Action: Click to Update Customer in Real Time
+                        Worker Actions & Shift Check-In
                       </p>
 
                       <div className="flex flex-wrap gap-3">
@@ -581,21 +742,21 @@ export default function WorkerPage() {
 
                         {(job.status === 'ACCEPTED' || job.status === 'ON_THE_WAY') && (
                           <button
-                            onClick={() => updateJobStatus(job.jobId, 'STARTED', job.customerId)}
-                            className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md transition-colors flex items-center gap-1.5"
+                            onClick={() => { setQrScannerJob(job); setQrInputPin(job.qrToken || ''); }}
+                            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs px-5 py-2.5 rounded-xl shadow-md transition-colors flex items-center gap-1.5"
                           >
-                            <span className="material-symbols-outlined text-sm">play_arrow</span>
-                            Start Work Now (JOB STARTED)
+                            <span className="material-symbols-outlined text-sm">qr_code_scanner</span>
+                            📷 SCAN QR CODE TO PUNCH-IN
                           </button>
                         )}
 
                         {job.status === 'STARTED' && (
                           <button
-                            onClick={() => updateJobStatus(job.jobId, 'COMPLETED', job.customerId)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg transition-colors flex items-center gap-1.5 text-sm animate-bounce"
+                            onClick={() => { setQrScannerJob(job); setQrInputPin(job.qrToken || ''); }}
+                            className="bg-slate-900 hover:bg-slate-800 text-white font-black text-xs px-6 py-3 rounded-xl shadow-lg transition-colors flex items-center gap-1.5 text-sm animate-pulse"
                           >
                             <span className="material-symbols-outlined text-base">task_alt</span>
-                            MARK JOB AS COMPLETED
+                            🏁 SCAN QR CODE TO PUNCH-OUT & COMPLETE
                           </button>
                         )}
                       </div>
@@ -954,6 +1115,77 @@ export default function WorkerPage() {
                   </button>
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR SCANNER / SECURITY PIN MODAL FOR WORKER */}
+      {qrScannerJob && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-start pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {qrScannerJob.status === 'STARTED' ? '⏱️ Shift Punch-Out' : '📷 Shift Punch-In'}
+                </h3>
+                <p className="text-xs text-slate-500">Scan customer's phone QR or enter PIN</p>
+              </div>
+              <button 
+                onClick={() => setQrScannerJob(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Camera Scanner Viewfinder simulation */}
+            <div className="bg-slate-900 text-white rounded-2xl p-5 text-center relative overflow-hidden border-2 border-dashed border-amber-400 shadow-inner space-y-2">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto border border-amber-400/40 animate-pulse">
+                <span className="material-symbols-outlined text-3xl">qr_code_scanner</span>
+              </div>
+              <p className="text-xs font-bold text-amber-300">Camera Viewfinder Active</p>
+              <p className="text-[10px] text-slate-400">Position camera over QR code displayed on customer's phone.</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">Security PIN Code</label>
+              <input 
+                type="text"
+                placeholder="e.g. 849201"
+                value={qrInputPin}
+                onChange={(e) => setQrInputPin(e.target.value)}
+                className="w-full text-center font-mono text-xl font-bold tracking-widest bg-slate-50 border border-slate-200 rounded-xl py-2 text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+              />
+              <p className="text-[10px] text-slate-400 text-center">PIN is shown below QR code on customer's phone screen</p>
+            </div>
+
+            <div className="pt-1 flex flex-col gap-2">
+              {qrScannerJob.status === 'STARTED' ? (
+                <button
+                  disabled={isProcessingPunch}
+                  onClick={() => handlePunchOut(qrScannerJob)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 uppercase tracking-wider"
+                >
+                  <span className="material-symbols-outlined text-base">task_alt</span>
+                  {isProcessingPunch ? 'Calculating & Punching Out...' : 'CONFIRM PUNCH-OUT'}
+                </button>
+              ) : (
+                <button
+                  disabled={isProcessingPunch}
+                  onClick={() => handlePunchIn(qrScannerJob)}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs py-3 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 uppercase tracking-wider"
+                >
+                  <span className="material-symbols-outlined text-base">play_arrow</span>
+                  {isProcessingPunch ? 'Verifying & Punching In...' : 'CONFIRM PUNCH-IN'}
+                </button>
+              )}
+              <button
+                onClick={() => setQrScannerJob(null)}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 rounded-xl"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

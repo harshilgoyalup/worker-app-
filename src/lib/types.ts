@@ -75,6 +75,19 @@ export interface Job {
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
+
+  // Digital Punch-In / Punch-Out & Hourly Billing fields
+  pricingType?: 'daily' | 'hourly';
+  hourlyRate?: number;
+  punchInTime?: string;
+  punchOutTime?: string;
+  punchInLocation?: { lat: number; lng: number; address?: string };
+  totalMinutesWorked?: number;
+  standardAmount?: number;
+  overtimeMinutes?: number;
+  overtimeAmount?: number;
+  finalPrice?: number;
+  qrToken?: string;
 }
 
 export interface ServiceItem {
